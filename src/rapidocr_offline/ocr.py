@@ -123,10 +123,20 @@ class OcrService:
         with tempfile.TemporaryDirectory(prefix="rapidocr-pdf-") as temp_dir:
             try:
                 page_images = self._pdf_renderer(source, temp_dir, render_dpi)
+            except OcrError:
+                # The renderer raised an application-level error of its own
+                # (e.g. a future "pdf_encrypted" code). Let it propagate
+                # unchanged so the original code/message reach the caller.
+                raise
             except Exception as exc:
                 # Renderer failures usually mean the user supplied a corrupt
                 # or unsupported PDF payload, so surface a 400-level error.
-                raise OcrError("invalid_file", "PDF could not be opened or rendered.") from exc
+                # Include the underlying reason so operators can triage
+                # without having to grep the server traceback log.
+                raise OcrError(
+                    "invalid_file",
+                    f"PDF could not be opened or rendered: {exc}",
+                ) from exc
 
             if not page_images:
                 raise OcrError("empty_pdf", "PDF did not render any pages.")
@@ -141,7 +151,21 @@ class OcrService:
     def _recognize_image(self, image_path: str | Path, page_number: int, return_word_box: bool) -> dict[str, Any]:
         """Run RapidOCR on one image path and normalize one page result."""
 
-        raw_result = self._get_engine()(str(image_path), return_word_box=return_word_box)
+        try:
+            raw_result = self._get_engine()(str(image_path), return_word_box=return_word_box)
+        except OcrError:
+            # Engine helpers may raise application-level errors of their own;
+            # do not downgrade them to ``invalid_file``.
+            raise
+        except Exception as exc:
+            # The OCR engine typically raises for corrupt or unsupported
+            # image payloads. Translate to a 400-level error so the contract
+            # mirrors the PDF path instead of surfacing as 500 internal_error.
+            raise OcrError(
+                "invalid_file",
+                f"OCR engine failed to read the image: {exc}",
+            ) from exc
+
         return self._normalize_page(raw_result, page_number)
 
     def _get_engine(self) -> Any:

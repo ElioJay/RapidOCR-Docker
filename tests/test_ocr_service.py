@@ -118,3 +118,39 @@ def test_recognize_upload_rejects_data_over_explicit_size_limit():
 
     assert exc_info.value.code == "file_too_large"
     assert exc_info.value.status_code == 413
+
+
+def test_recognize_upload_accepts_data_exactly_equal_to_size_limit():
+    # The size guard uses strict ``>`` so a body equal to ``max_bytes`` must pass.
+    # This pins the boundary and prevents accidental ``>=`` regressions.
+    engine = FakeEngine()
+    service = OcrService(engine_factory=lambda: engine, pdf_renderer=render_two_fake_pdf_pages)
+
+    result = service.recognize_upload("input.png", b"abcd", max_bytes=4)
+
+    assert result["file_type"] == "image"
+    assert engine.calls == [(".png", False)]
+
+
+def test_recognize_image_wraps_engine_errors_as_input_errors(tmp_path):
+    # Engine crashes on corrupt or unsupported image payloads must surface as
+    # ``invalid_file`` (400), mirroring the PDF path instead of bubbling up
+    # to the 500 internal_error handler.
+    def exploding_engine():
+        def engine(image_path, return_word_box=False):
+            raise RuntimeError("onnxruntime decode failure")
+
+        return engine
+
+    image_path = tmp_path / "input.png"
+    image_path.write_bytes(b"not a real png")
+    service = OcrService(
+        engine_factory=exploding_engine,
+        pdf_renderer=render_two_fake_pdf_pages,
+    )
+
+    with pytest.raises(OcrError) as exc_info:
+        service.recognize_path(image_path)
+
+    assert exc_info.value.code == "invalid_file"
+    assert exc_info.value.status_code == 400

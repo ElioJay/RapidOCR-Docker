@@ -11,8 +11,37 @@ from .ocr import OcrError, OcrService
 # Hard cap on uploads to keep memory bounded; 50 MB covers typical OCR jobs.
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+# Chunk size for streaming uploads. 64 KiB balances syscall overhead against
+# how quickly we can short-circuit an oversized body.
+_UPLOAD_CHUNK_BYTES = 64 * 1024
+
 app = FastAPI(title="RapidOCR Offline API", version=__version__)
 service = OcrService()
+
+
+async def _read_upload_with_cap(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload body in chunks, aborting once max_bytes is exceeded.
+
+    Some ``UploadFile`` implementations leave ``file.size`` as ``None``, which
+    means a naive ``await file.read()`` would buffer the entire payload before
+    any size check could run. Streaming the read lets us reject oversized
+    bodies before they consume process memory.
+    """
+
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            # Empty chunk signals end-of-stream for Starlette's UploadFile.
+            break
+        buffer.extend(chunk)
+        if len(buffer) > max_bytes:
+            raise OcrError(
+                "file_too_large",
+                f"Upload exceeds the {max_bytes} byte limit.",
+                status_code=413,
+            )
+    return bytes(buffer)
 
 
 @app.get("/health")
@@ -37,7 +66,9 @@ async def recognize(
 ) -> dict[str, Any]:
     """Run OCR for one uploaded image or PDF file."""
 
-    # Reject oversized uploads early; Starlette exposes the parsed multipart size.
+    # Fast-path: reject before reading the body when Starlette already knows
+    # the multipart part size. This avoids wasting a chunked read on uploads
+    # we can pre-judge from the parsed Content-Length.
     if file.size is not None and file.size > MAX_UPLOAD_BYTES:
         raise OcrError(
             "file_too_large",
@@ -45,11 +76,14 @@ async def recognize(
             status_code=413,
         )
 
-    data = await file.read()
+    # Slow-path: stream the body in chunks so we can abort oversized uploads
+    # even when ``file.size`` is unknown.
+    data = await _read_upload_with_cap(file, MAX_UPLOAD_BYTES)
 
     # Offload synchronous RapidOCR/PyMuPDF work so the event loop stays responsive
-    # for concurrent requests and the /health endpoint. Pass the byte cap again
-    # because file.size is not guaranteed for every UploadFile implementation.
+    # for concurrent requests and the /health endpoint. ``max_bytes`` is also
+    # forwarded as defense-in-depth so direct service callers cannot bypass the
+    # cap by skipping the API layer.
     return await run_in_threadpool(
         service.recognize_upload,
         filename=file.filename or "upload",
