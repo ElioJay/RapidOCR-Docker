@@ -48,13 +48,15 @@ async def recognize(
     data = await file.read()
 
     # Offload synchronous RapidOCR/PyMuPDF work so the event loop stays responsive
-    # for concurrent requests and the /health endpoint.
+    # for concurrent requests and the /health endpoint. Pass the byte cap again
+    # because file.size is not guaranteed for every UploadFile implementation.
     return await run_in_threadpool(
         service.recognize_upload,
         filename=file.filename or "upload",
         data=data,
         render_dpi=render_dpi,
         return_word_box=return_word_box,
+        max_bytes=MAX_UPLOAD_BYTES,
     )
 
 

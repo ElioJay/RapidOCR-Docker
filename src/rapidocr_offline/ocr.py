@@ -48,11 +48,20 @@ class OcrService:
         data: bytes,
         render_dpi: int = 200,
         return_word_box: bool = False,
+        max_bytes: int | None = None,
     ) -> dict[str, Any]:
         """Recognize an uploaded file by writing it to a temporary path first."""
 
         suffix = Path(filename).suffix.lower()
         self._validate_file_suffix(suffix)
+        # Validate the actual bytes too; some upload adapters do not expose
+        # a reliable size before the body is read.
+        if max_bytes is not None and len(data) > max_bytes:
+            raise OcrError(
+                "file_too_large",
+                f"Upload exceeds the {max_bytes} byte limit.",
+                status_code=413,
+            )
 
         temp_path: Path | None = None
         try:
@@ -112,7 +121,13 @@ class OcrService:
         """Render a PDF into pages and OCR each rendered image."""
 
         with tempfile.TemporaryDirectory(prefix="rapidocr-pdf-") as temp_dir:
-            page_images = self._pdf_renderer(source, temp_dir, render_dpi)
+            try:
+                page_images = self._pdf_renderer(source, temp_dir, render_dpi)
+            except Exception as exc:
+                # Renderer failures usually mean the user supplied a corrupt
+                # or unsupported PDF payload, so surface a 400-level error.
+                raise OcrError("invalid_file", "PDF could not be opened or rendered.") from exc
+
             if not page_images:
                 raise OcrError("empty_pdf", "PDF did not render any pages.")
 
