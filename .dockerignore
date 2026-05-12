@@ -1,0 +1,9 @@
+.pytest-tmp/
+.venv/
+__pycache__/
+*.pyc
+dist/
+.git/
+.gitignore
+tests/
+docs/superpowers/

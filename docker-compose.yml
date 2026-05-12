@@ -1,0 +1,13 @@
+services:
+  rapidocr-docker:
+    image: ${IMAGE_NAME:-rapidocr-docker}:${IMAGE_TAG:-1.0.0}
+    build:
+      context: .
+    environment:
+      # APP_PORT changes the port listened to inside the container.
+      APP_HOST: 0.0.0.0
+      APP_PORT: ${APP_PORT:-8000}
+    ports:
+      # HOST_PORT changes the port exposed on the Docker host.
+      - "${HOST_PORT:-8000}:${APP_PORT:-8000}"
+    command: ["server"]

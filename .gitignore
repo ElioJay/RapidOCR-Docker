@@ -1,0 +1,9 @@
+.pytest-tmp/
+.pytest_cache/
+.venv/
+__pycache__/
+*.pyc
+dist/
+*.tar
+docs/
+tests/
