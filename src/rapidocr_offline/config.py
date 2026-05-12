@@ -21,9 +21,11 @@ def load_settings(environ: Mapping[str, str] | None = None) -> AppSettings:
     try:
         port = int(raw_port)
     except ValueError as exc:
-        raise ValueError("APP_PORT must be an integer between 1 and 65535.") from exc
+        # Distinguish "not an integer" from "out of range" so operators can
+        # tell whether to fix the type or the value.
+        raise ValueError(f"APP_PORT must be an integer, got {raw_port!r}.") from exc
 
     if port < 1 or port > 65535:
-        raise ValueError("APP_PORT must be an integer between 1 and 65535.")
+        raise ValueError(f"APP_PORT {port} is out of range; expected 1-65535.")
 
     return AppSettings(host=host, port=port)

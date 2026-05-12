@@ -199,6 +199,10 @@ def _to_json_value(value: Any) -> Any:
         return [_to_json_value(item) for item in value]
     if isinstance(value, list):
         return [_to_json_value(item) for item in value]
+    # Recurse into dict values so nested numpy scalars in word-level results
+    # (e.g. {"score": np.float32(...)}) become JSON-serializable.
+    if isinstance(value, dict):
+        return {key: _to_json_value(item) for key, item in value.items()}
     return value
 
 

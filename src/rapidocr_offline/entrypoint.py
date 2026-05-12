@@ -17,7 +17,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args[0] == "ocr":
         return cli.main(args[1:])
 
-    # Treat unknown first arguments as direct CLI input for convenience.
+    # Treat unknown first arguments as direct CLI input for convenience,
+    # but warn so operators are not confused by downstream "file_not_found".
+    print(
+        f"entrypoint: unknown command {args[0]!r}; treating arguments as CLI input.",
+        file=sys.stderr,
+    )
     return cli.main(args)
 
 

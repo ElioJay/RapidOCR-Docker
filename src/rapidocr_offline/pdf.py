@@ -20,7 +20,12 @@ def render_pdf_to_png_files(pdf_path: str | Path, output_dir: str | Path, dpi: i
             # alpha=False keeps empty PDF background white and reduces memory use.
             pixmap = page.get_pixmap(dpi=dpi, alpha=False)
             output_path = target_dir / f"page-{index}.png"
-            pixmap.save(output_path)
+            try:
+                pixmap.save(output_path)
+            finally:
+                # Release native buffers immediately; large multi-page PDFs
+                # otherwise accumulate hundreds of MB before GC runs.
+                del pixmap
             rendered_pages.append(output_path)
 
     return rendered_pages
